@@ -143,9 +143,38 @@ B0_map_ppm(B0_map_ppm > 2) = 2;
 fprintf('✓ B0 map calculated: mean = %.3f ppm, std = %.3f ppm\n', ...
     mean(B0_map_ppm(:)), std(B0_map_ppm(:)));
 
-%% Step 4: Manual ROI Drawing for 24 Tubes
+%% Step 4: Detect Phantom Outline
 disp('========================================');
-disp('STEP 4: Manual ROI Drawing (24 tubes)');
+disp('STEP 4: Detect Phantom Outline');
+disp('========================================');
+
+% Automatic phantom outline detection (just the outer boundary)
+Sm = imgaussfilt(S0_image, 4);
+Smn = mat2gray(Sm);
+bw_phantom = imbinarize(Smn);
+
+CCp = bwconncomp(bw_phantom);
+numPix = cellfun(@numel, CCp.PixelIdxList);
+[~, idxMax] = max(numPix);
+phantom_outline = false(size(bw_phantom));
+phantom_outline(CCp.PixelIdxList{idxMax}) = true;
+phantom_outline = imfill(phantom_outline, "holes");
+phantom_outline = imopen(phantom_outline, strel('disk', 5));
+
+% Visualize phantom outline
+figure('Position', [100, 100, 800, 600]);
+imshow(S0_image, [], 'InitialMagnification', 'fit');
+hold on;
+visboundaries(phantom_outline, 'Color', 'r', 'LineWidth', 2);
+title('Detected Phantom Outline', 'FontSize', 14);
+hold off;
+
+fprintf('✓ Phantom outline detected\n');
+fprintf('  This will be used to mask B0 correction to phantom region only.\n\n');
+
+%% Step 5: Manual ROI Drawing for 24 Tubes
+disp('========================================');
+disp('STEP 5: Manual ROI Drawing (24 tubes)');
 disp('========================================');
 
 fprintf('\nYou will now draw ROIs for all 24 tubes in order.\n');
