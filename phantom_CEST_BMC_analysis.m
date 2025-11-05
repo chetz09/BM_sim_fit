@@ -492,10 +492,16 @@ results.num_voxels = zeros(numTubes, 1);
 results.Kex_Hz = zeros(numTubes, 1);
 results.concentration_mM = zeros(numTubes, 1);
 results.chemical_shift_ppm = zeros(numTubes, 1);
-results.CEST_at_3_5ppm = zeros(numTubes, 1);
-results.CEST_at_4_3ppm = zeros(numTubes, 1);
-results.CEST_at_1_9ppm = zeros(numTubes, 1);
+results.CEST_at_3_5ppm = zeros(numTubes, 1);  % Amide/PLL amide
+results.CEST_at_4_3ppm = zeros(numTubes, 1);  % Iopamidol peak 1
+results.CEST_at_5_5ppm = zeros(numTubes, 1);  % Iopamidol peak 2
+results.CEST_at_1_9ppm = zeros(numTubes, 1);  % Creatine
+results.CEST_at_2_7ppm = zeros(numTubes, 1);  % PLL amine
+results.CEST_at_2_8ppm = zeros(numTubes, 1);  % Taurine
 results.B0_mean_ppm = zeros(numTubes, 1);
+
+% Store Z-spectra for all tubes (for plotting)
+all_zspectra = zeros(numTubes, length(ppmOffsets));
 
 fprintf('Processing %d tubes with BMC analysis...\n', numTubes);
 
@@ -517,6 +523,9 @@ for t = 1:numTubes
     S0_tube = mean(S0_image(currentMask), 'omitnan');
     tube_zspec_norm = tube_zspec / S0_tube;
 
+    % Store for plotting
+    all_zspectra(t, :) = tube_zspec_norm;
+
     % Calculate MTR asymmetry at key offsets
     % 3.5 ppm (Amide)
     idx_pos_3_5 = find(abs(ppmOffsets - 3.5) == min(abs(ppmOffsets - 3.5)), 1);
@@ -532,6 +541,21 @@ for t = 1:numTubes
     idx_pos_1_9 = find(abs(ppmOffsets - 1.9) == min(abs(ppmOffsets - 1.9)), 1);
     idx_neg_1_9 = find(abs(ppmOffsets + 1.9) == min(abs(ppmOffsets + 1.9)), 1);
     results.CEST_at_1_9ppm(t) = 100 * (tube_zspec_norm(idx_neg_1_9) - tube_zspec_norm(idx_pos_1_9));
+
+    % 5.5 ppm (Iopamidol second peak)
+    idx_pos_5_5 = find(abs(ppmOffsets - 5.5) == min(abs(ppmOffsets - 5.5)), 1);
+    idx_neg_5_5 = find(abs(ppmOffsets + 5.5) == min(abs(ppmOffsets + 5.5)), 1);
+    results.CEST_at_5_5ppm(t) = 100 * (tube_zspec_norm(idx_neg_5_5) - tube_zspec_norm(idx_pos_5_5));
+
+    % 2.7 ppm (PLL amine)
+    idx_pos_2_7 = find(abs(ppmOffsets - 2.7) == min(abs(ppmOffsets - 2.7)), 1);
+    idx_neg_2_7 = find(abs(ppmOffsets + 2.7) == min(abs(ppmOffsets + 2.7)), 1);
+    results.CEST_at_2_7ppm(t) = 100 * (tube_zspec_norm(idx_neg_2_7) - tube_zspec_norm(idx_pos_2_7));
+
+    % 2.8 ppm (Taurine)
+    idx_pos_2_8 = find(abs(ppmOffsets - 2.8) == min(abs(ppmOffsets - 2.8)), 1);
+    idx_neg_2_8 = find(abs(ppmOffsets + 2.8) == min(abs(ppmOffsets + 2.8)), 1);
+    results.CEST_at_2_8ppm(t) = 100 * (tube_zspec_norm(idx_neg_2_8) - tube_zspec_norm(idx_pos_2_8));
 
     % Determine expected chemical based on tube number
     if t <= 6  % Iopamidol
@@ -578,6 +602,121 @@ end
 
 fprintf('✓ BMC analysis complete for all %d tubes\n', numTubes);
 
+%% Step 7a: Plot Z-spectra for All Tubes
+disp('========================================');
+disp('STEP 7a: Plot Z-spectra for All Tubes');
+disp('========================================');
+
+fprintf('Creating Z-spectra plots for all 24 tubes...\n');
+
+% Create a figure with 6x4 subplots (24 tubes)
+fig_zspec = figure('Position', [50, 50, 2000, 1200]);
+set(fig_zspec, 'Name', 'Z-spectra for All 24 Tubes');
+
+for t = 1:numTubes
+    subplot(4, 6, t);
+
+    % Plot Z-spectrum with measured points
+    plot(ppmOffsets, all_zspectra(t, :), 'bo-', 'LineWidth', 1.5, 'MarkerSize', 4, 'MarkerFaceColor', 'b');
+
+    % Formatting
+    xlabel('Offset (ppm)', 'FontSize', 8);
+    ylabel('Normalized Signal', 'FontSize', 8);
+    title(sprintf('Tube %d: %s', t, strrep(tube_labels{t}, '_', ' ')), 'FontSize', 9, 'Interpreter', 'none');
+    grid on;
+    xlim([min(ppmOffsets) max(ppmOffsets)]);
+    ylim([0 1.2]);
+    set(gca, 'FontSize', 7);
+
+    % Mark key chemical shifts with vertical lines
+    hold on;
+    if t <= 6  % Iopamidol
+        xline(4.3, 'r--', 'LineWidth', 1, 'Alpha', 0.5);
+        xline(5.5, 'r--', 'LineWidth', 1, 'Alpha', 0.5);
+    elseif t <= 12  % Creatine
+        xline(1.9, 'g--', 'LineWidth', 1, 'Alpha', 0.5);
+    elseif t <= 18  % Taurine
+        xline(2.8, 'm--', 'LineWidth', 1, 'Alpha', 0.5);
+    elseif t <= 21  % PLL
+        xline(3.5, 'c--', 'LineWidth', 1, 'Alpha', 0.5);
+        xline(2.7, 'c--', 'LineWidth', 1, 'Alpha', 0.5);
+    end
+    hold off;
+end
+
+sgtitle('Z-spectra for All 24 Tubes (Normalized)', 'FontSize', 14, 'FontWeight', 'bold');
+saveas(fig_zspec, 'BMC_Zspectra_all_tubes.png');
+saveas(fig_zspec, 'BMC_Zspectra_all_tubes.fig');
+
+fprintf('✓ Z-spectra plots saved: BMC_Zspectra_all_tubes.png/fig\n');
+
+%% Step 7b: Plot MTR Asymmetry for All Tubes
+disp('========================================');
+disp('STEP 7b: Plot MTR Asymmetry for All Tubes');
+disp('========================================');
+
+fprintf('Calculating and plotting MTR asymmetry for all 24 tubes...\n');
+
+% Calculate MTR asymmetry spectra for all tubes
+all_MTRasym = zeros(numTubes, length(ppmOffsets));
+
+for t = 1:numTubes
+    for offset_idx = 1:length(ppmOffsets)
+        ppm_val = ppmOffsets(offset_idx);
+
+        % Find negative counterpart
+        idx_neg = find(abs(ppmOffsets + ppm_val) == min(abs(ppmOffsets + ppm_val)), 1);
+
+        % Calculate MTRasym = Z(-ppm) - Z(+ppm)
+        all_MTRasym(t, offset_idx) = 100 * (all_zspectra(t, idx_neg) - all_zspectra(t, offset_idx));
+    end
+end
+
+% Create a figure with 6x4 subplots (24 tubes)
+fig_mtr = figure('Position', [100, 50, 2000, 1200]);
+set(fig_mtr, 'Name', 'MTR Asymmetry for All 24 Tubes');
+
+for t = 1:numTubes
+    subplot(4, 6, t);
+
+    % Plot only positive offsets for MTR asymmetry
+    pos_indices = ppmOffsets > 0;
+    plot(ppmOffsets(pos_indices), all_MTRasym(t, pos_indices), 'ro-', ...
+        'LineWidth', 1.5, 'MarkerSize', 4, 'MarkerFaceColor', 'r');
+
+    % Formatting
+    xlabel('Offset (ppm)', 'FontSize', 8);
+    ylabel('MTRasym (%)', 'FontSize', 8);
+    title(sprintf('Tube %d: %s', t, strrep(tube_labels{t}, '_', ' ')), 'FontSize', 9, 'Interpreter', 'none');
+    grid on;
+    xlim([0 max(ppmOffsets)]);
+    set(gca, 'FontSize', 7);
+
+    % Add zero reference line
+    hold on;
+    yline(0, 'k--', 'LineWidth', 0.5, 'Alpha', 0.5);
+
+    % Mark key chemical shifts with vertical lines
+    if t <= 6  % Iopamidol
+        xline(4.3, 'r--', 'LineWidth', 1, 'Alpha', 0.5);
+        xline(5.5, 'r--', 'LineWidth', 1, 'Alpha', 0.5);
+    elseif t <= 12  % Creatine
+        xline(1.9, 'g--', 'LineWidth', 1, 'Alpha', 0.5);
+    elseif t <= 18  % Taurine
+        xline(2.8, 'm--', 'LineWidth', 1, 'Alpha', 0.5);
+    elseif t <= 21  % PLL
+        xline(3.5, 'c--', 'LineWidth', 1, 'Alpha', 0.5);
+        xline(2.7, 'c--', 'LineWidth', 1, 'Alpha', 0.5);
+    end
+    hold off;
+end
+
+sgtitle('MTR Asymmetry for All 24 Tubes', 'FontSize', 14, 'FontWeight', 'bold');
+saveas(fig_mtr, 'BMC_MTRasym_all_tubes.png');
+saveas(fig_mtr, 'BMC_MTRasym_all_tubes.fig');
+
+fprintf('✓ MTR asymmetry plots saved: BMC_MTRasym_all_tubes.png/fig\n');
+
 %% Step 8: Generate Parametric Maps
 disp('========================================');
 disp('STEP 8: Generate Parametric Maps');
@@ -591,71 +730,119 @@ end
 Kex_map(~phantom_outline) = NaN;
 
 % Create CEST parametric maps
-CEST_map_4_3ppm = zeros(xDim, yDim);
-CEST_map_1_9ppm = zeros(xDim, yDim);
 CEST_map_3_5ppm = zeros(xDim, yDim);
+CEST_map_4_3ppm = zeros(xDim, yDim);
+CEST_map_5_5ppm = zeros(xDim, yDim);
+CEST_map_1_9ppm = zeros(xDim, yDim);
+CEST_map_2_7ppm = zeros(xDim, yDim);
+CEST_map_2_8ppm = zeros(xDim, yDim);
 
 for t = 1:numTubes
-    CEST_map_4_3ppm(tubeMasks(:,:,t)) = results.CEST_at_4_3ppm(t);
-    CEST_map_1_9ppm(tubeMasks(:,:,t)) = results.CEST_at_1_9ppm(t);
     CEST_map_3_5ppm(tubeMasks(:,:,t)) = results.CEST_at_3_5ppm(t);
+    CEST_map_4_3ppm(tubeMasks(:,:,t)) = results.CEST_at_4_3ppm(t);
+    CEST_map_5_5ppm(tubeMasks(:,:,t)) = results.CEST_at_5_5ppm(t);
+    CEST_map_1_9ppm(tubeMasks(:,:,t)) = results.CEST_at_1_9ppm(t);
+    CEST_map_2_7ppm(tubeMasks(:,:,t)) = results.CEST_at_2_7ppm(t);
+    CEST_map_2_8ppm(tubeMasks(:,:,t)) = results.CEST_at_2_8ppm(t);
 end
 
-CEST_map_4_3ppm(~phantom_outline) = NaN;
-CEST_map_1_9ppm(~phantom_outline) = NaN;
 CEST_map_3_5ppm(~phantom_outline) = NaN;
+CEST_map_4_3ppm(~phantom_outline) = NaN;
+CEST_map_5_5ppm(~phantom_outline) = NaN;
+CEST_map_1_9ppm(~phantom_outline) = NaN;
+CEST_map_2_7ppm(~phantom_outline) = NaN;
+CEST_map_2_8ppm(~phantom_outline) = NaN;
 
-% Plot parametric maps
-figure('Position', [100, 100, 1600, 1000]);
+% Plot parametric maps - Figure 1: Main maps
+figure('Position', [100, 100, 1800, 1200]);
 
-subplot(2,3,1);
+subplot(3,3,1);
 imagesc(Kex_map);
 axis image off;
 colormap(gca, hot);
 colorbar;
-title('Kex Map (Hz)', 'FontSize', 14);
-caxis([0 max(results.Kex_Hz)*1.1]);
+title('Kex Map (Hz)', 'FontSize', 12);
+if max(results.Kex_Hz) > 0
+    caxis([0 max(results.Kex_Hz)*1.1]);
+end
 
-subplot(2,3,2);
-imagesc(CEST_map_4_3ppm);
-axis image off;
-colormap(gca, jet);
-colorbar;
-title('%CEST @ 4.3 ppm (Iopamidol)', 'FontSize', 14);
-caxis([0 max(results.CEST_at_4_3ppm)*1.1]);
-
-subplot(2,3,3);
-imagesc(CEST_map_1_9ppm);
-axis image off;
-colormap(gca, jet);
-colorbar;
-title('%CEST @ 1.9 ppm (Creatine)', 'FontSize', 14);
-caxis([0 max(results.CEST_at_1_9ppm)*1.1]);
-
-subplot(2,3,4);
+subplot(3,3,2);
 imagesc(CEST_map_3_5ppm);
 axis image off;
 colormap(gca, jet);
 colorbar;
-title('%CEST @ 3.5 ppm (Amide)', 'FontSize', 14);
-caxis([0 max(results.CEST_at_3_5ppm)*1.1]);
+title('%CEST @ 3.5 ppm (Amide/PLL)', 'FontSize', 12);
+if max(results.CEST_at_3_5ppm) > 0
+    caxis([0 max(results.CEST_at_3_5ppm)*1.1]);
+end
 
-subplot(2,3,5);
+subplot(3,3,3);
+imagesc(CEST_map_4_3ppm);
+axis image off;
+colormap(gca, jet);
+colorbar;
+title('%CEST @ 4.3 ppm (Iopamidol)', 'FontSize', 12);
+if max(results.CEST_at_4_3ppm) > 0
+    caxis([0 max(results.CEST_at_4_3ppm)*1.1]);
+end
+
+subplot(3,3,4);
+imagesc(CEST_map_5_5ppm);
+axis image off;
+colormap(gca, jet);
+colorbar;
+title('%CEST @ 5.5 ppm (Iopamidol)', 'FontSize', 12);
+if max(results.CEST_at_5_5ppm) > 0
+    caxis([0 max(results.CEST_at_5_5ppm)*1.1]);
+end
+
+subplot(3,3,5);
+imagesc(CEST_map_1_9ppm);
+axis image off;
+colormap(gca, jet);
+colorbar;
+title('%CEST @ 1.9 ppm (Creatine)', 'FontSize', 12);
+if max(results.CEST_at_1_9ppm) > 0
+    caxis([0 max(results.CEST_at_1_9ppm)*1.1]);
+end
+
+subplot(3,3,6);
+imagesc(CEST_map_2_7ppm);
+axis image off;
+colormap(gca, jet);
+colorbar;
+title('%CEST @ 2.7 ppm (PLL amine)', 'FontSize', 12);
+if max(results.CEST_at_2_7ppm) > 0
+    caxis([0 max(results.CEST_at_2_7ppm)*1.1]);
+end
+
+subplot(3,3,7);
+imagesc(CEST_map_2_8ppm);
+axis image off;
+colormap(gca, jet);
+colorbar;
+title('%CEST @ 2.8 ppm (Taurine)', 'FontSize', 12);
+if max(results.CEST_at_2_8ppm) > 0
+    caxis([0 max(results.CEST_at_2_8ppm)*1.1]);
+end
+
+subplot(3,3,8);
 imagesc(B0_map_ppm);
 axis image off;
 colormap(gca, jet);
 colorbar;
-title('B0 Map (ppm)', 'FontSize', 14);
+title('B0 Map (ppm)', 'FontSize', 12);
 caxis([-0.5 0.5]);
 
-subplot(2,3,6);
+subplot(3,3,9);
 bar(1:numTubes, results.Kex_Hz);
-xlabel('Tube Number');
-ylabel('Kex (Hz)');
-title('Exchange Rates by Tube');
+xlabel('Tube Number', 'FontSize', 10);
+ylabel('Kex (Hz)', 'FontSize', 10);
+title('Exchange Rates by Tube', 'FontSize', 12);
 grid on;
+set(gca, 'FontSize', 9);
 
-sgtitle('BMC Parametric Maps', 'FontSize', 16, 'FontWeight', 'bold');
+sgtitle('BMC Parametric Maps - All CEST Offsets', 'FontSize', 16, 'FontWeight', 'bold');
 saveas(gcf, 'BMC_parametric_maps.png');
 
 fprintf('✓ Parametric maps generated\n');
@@ -673,7 +860,9 @@ fprintf('✓ Saved: %s\n', csv_filename);
 % Save MATLAB workspace
 save('BMC_CEST_workspace.mat', 'results', 'tubeMasks', 'B0_map_ppm', ...
     'zspecVolume_corrected', 'ppmOffsets', 'tube_labels', 'Kex_map', ...
-    'CEST_map_4_3ppm', 'CEST_map_1_9ppm', 'CEST_map_3_5ppm');
+    'CEST_map_3_5ppm', 'CEST_map_4_3ppm', 'CEST_map_5_5ppm', ...
+    'CEST_map_1_9ppm', 'CEST_map_2_7ppm', 'CEST_map_2_8ppm', ...
+    'all_zspectra', 'all_MTRasym');
 fprintf('✓ Saved: BMC_CEST_workspace.mat\n');
 
 %% Summary
@@ -682,14 +871,16 @@ disp('ANALYSIS COMPLETE!');
 disp('========================================');
 fprintf('Total time: %.1f seconds\n', toc);
 fprintf('\nGenerated Files:\n');
-fprintf('  1. BMC_CEST_results.csv - Results table\n');
-fprintf('  2. BMC_parametric_maps.png - All maps\n');
-fprintf('  3. DETECTED_tube_numbering.png - Tube detection\n');
-fprintf('  4. BMC_tubeMasks.mat - Tube masks\n');
-fprintf('  5. BMC_CEST_workspace.mat - Full workspace\n');
+fprintf('  1. BMC_CEST_results.csv - Results table with all CEST offsets\n');
+fprintf('  2. BMC_parametric_maps.png - All parametric maps (9 panels)\n');
+fprintf('  3. BMC_Zspectra_all_tubes.png/fig - Z-spectra for all 24 tubes\n');
+fprintf('  4. BMC_MTRasym_all_tubes.png/fig - MTR asymmetry for all 24 tubes\n');
+fprintf('  5. BMC_tubeMasks.mat - Tube masks\n');
+fprintf('  6. BMC_CEST_workspace.mat - Full workspace\n');
 fprintf('\nKey Results:\n');
 fprintf('  - Tubes analyzed: %d\n', numTubes);
 fprintf('  - B0 correction: Applied (WASSR-based)\n');
+fprintf('  - CEST offsets analyzed: 1.9, 2.7, 2.8, 3.5, 4.3, 5.5 ppm\n');
 fprintf('  - Kex range: %.1f - %.1f Hz\n', min(results.Kex_Hz), max(results.Kex_Hz));
 fprintf('  - Mean B0 shift: %.3f ppm\n', mean(results.B0_mean_ppm));
 disp('========================================');
