@@ -49,117 +49,147 @@ dicomFiles = dir(fullfile(DIR_CEST, '*.dcm'));
 numFiles = length(dicomFiles);
 fprintf('Found %d DICOM files\n', numFiles);
 
+if numFiles ~= 63
+    warning('Expected 63 DICOM files but found %d. Proceeding with caution.', numFiles);
+end
+
 % Read first file to get dimensions
 firstFile = fullfile(DIR_CEST, dicomFiles(1).name);
 temp = dicomread(firstFile);
 [xDim, yDim] = size(temp);
 
-% Preallocate Z-spectrum volume
-zspecVolume = zeros(xDim, yDim, numFiles);
-ppmOffsets = zeros(numFiles, 1);
+% Preallocate full volume (all 63 images)
+dicomVolume = zeros(xDim, yDim, numFiles);
 
-% Load all DICOM files and extract ppm offsets
+% Load all DICOM files
 fprintf('Loading DICOM files...\n');
 for i = 1:numFiles
     filePath = fullfile(DIR_CEST, dicomFiles(i).name);
-    zspecVolume(:,:,i) = double(dicomread(filePath));
-    info = dicominfo(filePath);
-
-    % Try to extract frequency offset from DICOM header
-    % Common tags: Private tags, ImageComments, or SeriesDescription
-    if isfield(info, 'Private_0019_10e0')
-        ppmOffsets(i) = double(info.Private_0019_10e0);
-    elseif isfield(info, 'ImageComments')
-        % Try to parse ppm from image comments
-        matches = regexp(info.ImageComments, '[-+]?\d+\.?\d*', 'match');
-        if ~isempty(matches)
-            ppmOffsets(i) = str2double(matches{1});
-        end
-    else
-        warning('Could not extract ppm offset from file %d. Manual entry required.', i);
-    end
+    dicomVolume(:,:,i) = double(dicomread(filePath));
 end
 
-% If ppm offsets not found automatically, prompt user
-if all(ppmOffsets == 0)
-    disp('PPM offsets not found in DICOM headers.');
-    disp('Please enter ppm offsets manually or load from file.');
-    choice = questdlg('How to provide ppm offsets?', 'PPM Offsets', ...
-        'Manual Entry', 'Load from file', 'Default Range', 'Default Range');
-
-    switch choice
-        case 'Manual Entry'
-            for i = 1:numFiles
-                ppmOffsets(i) = input(sprintf('Enter ppm offset for file %d (%s): ', ...
-                    i, dicomFiles(i).name));
-            end
-        case 'Load from file'
-            [file, path] = uigetfile({'*.mat;*.txt;*.csv', 'Offset Files'}, ...
-                'Select file with ppm offsets');
-            if file ~= 0
-                [~, ~, ext] = fileparts(file);
-                if strcmp(ext, '.mat')
-                    data = load(fullfile(path, file));
-                    vars = fieldnames(data);
-                    ppmOffsets = data.(vars{1});
-                elseif strcmp(ext, '.txt') || strcmp(ext, '.csv')
-                    ppmOffsets = readmatrix(fullfile(path, file));
-                end
-            end
-        case 'Default Range'
-            % Common CEST range: -5 to +5 ppm
-            ppmOffsets = linspace(-5, 5, numFiles)';
-            fprintf('Using default range: -5 to +5 ppm\n');
-    end
-end
-
-fprintf('✓ Loaded Z-spectrum: %d x %d x %d (offsets)\n', xDim, yDim, numFiles);
-fprintf('  PPM range: %.2f to %.2f ppm\n', min(ppmOffsets), max(ppmOffsets));
-
-%% Step 2: Load B0 Map for Correction
+%% Step 2: Define Frequency Offsets
 disp('========================================');
-disp('STEP 2: Load B0 Field Map');
+disp('STEP 2: Defining Frequency Offsets');
 disp('========================================');
-disp('Select B0 map DICOM folder');
-DIR_B0 = uigetdir(pwd, 'Select B0 map DICOM folder');
 
-if DIR_B0 == 0
-    disp('⚠ No B0 map selected. Skipping B0 correction.');
-    B0_map_ppm = zeros(xDim, yDim);
-    apply_B0_correction = false;
-else
-    dicomFiles_B0 = dir(fullfile(DIR_B0, '*.dcm'));
-    if isempty(dicomFiles_B0)
-        warning('No DICOM files found in B0 folder. Skipping B0 correction.');
+% Field strength for Hz to ppm conversion
+B0_field = 3.0;  % Tesla (change if using different field strength)
+f0_MHz = 42.577 * B0_field;  % Larmor frequency for protons (MHz)
+
+% WASSR images: indices 4-14 (11 images)
+wassr_offsets_Hz = [240, 192, 144, 96, 48, 0, -48, -96, -144, -192, -240]; % Hz
+wassr_indices = 4:14;
+
+% CEST images: indices 15-63 (49 images)
+cest_offsets_Hz = [896, 864, 832, 800, 768, 736, 704, 672, 640, 608, 576, 544, ...
+                   512, 480, 448, 416, 384, 352, 320, 288, 256, 192, 128, 64, 0, ...
+                   -64, -128, -192, -256, -288, -320, -352, -384, -416, -448, ...
+                   -480, -512, -544, -576, -608, -640, -672, -704, -736, -768, ...
+                   -800, -832, -864, -896]; % Hz
+cest_indices = 15:63;
+
+% S0 reference image (index 2)
+S0_index = 2;
+S0_image = dicomVolume(:,:,S0_index);
+
+% Convert Hz to ppm
+wassr_offsets_ppm = wassr_offsets_Hz / f0_MHz;
+cest_offsets_ppm = cest_offsets_Hz / f0_MHz;
+
+% Extract CEST volume and ppm offsets
+zspecVolume = dicomVolume(:,:,cest_indices);
+ppmOffsets = cest_offsets_ppm';
+
+fprintf('✓ Loaded complete dataset:\n');
+fprintf('  - S0 image: index %d\n', S0_index);
+fprintf('  - WASSR images: %d images (indices %d-%d)\n', length(wassr_indices), wassr_indices(1), wassr_indices(end));
+fprintf('  - CEST images: %d images (indices %d-%d)\n', length(cest_indices), cest_indices(1), cest_indices(end));
+fprintf('  - CEST PPM range: %.2f to %.2f ppm\n', min(ppmOffsets), max(ppmOffsets));
+fprintf('  - Image dimensions: %d x %d\n', xDim, yDim);
+
+%% Step 3: Calculate B0 Map from WASSR Data
+disp('========================================');
+disp('STEP 3: Calculate B0 Map from WASSR');
+disp('========================================');
+
+% Ask user if they want to use WASSR for B0 correction or load external B0 map
+choice = questdlg('B0 correction method:', 'B0 Correction', ...
+    'Use WASSR data', 'Load external B0 map', 'Skip B0 correction', 'Use WASSR data');
+
+switch choice
+    case 'Use WASSR data'
+        fprintf('Calculating B0 map from WASSR data...\n');
+
+        % Extract WASSR volume
+        wasserVolume = dicomVolume(:,:,wassr_indices);
+
+        % Calculate B0 map from WASSR (find frequency offset with minimum signal)
         B0_map_ppm = zeros(xDim, yDim);
-        apply_B0_correction = false;
-    else
-        % Load B0 map (assuming first file or combined map)
-        B0_Hz = double(dicomread(fullfile(DIR_B0, dicomFiles_B0(1).name)));
 
-        % Convert from Hz to ppm
-        B0_field = 3.0;  % Tesla (adjust if different field strength)
-        f0_MHz = 42.577 * B0_field;  % Larmor frequency for protons
-        B0_map_ppm = B0_Hz / f0_MHz;
+        for i = 1:xDim
+            for j = 1:yDim
+                wassr_spectrum = squeeze(wasserVolume(i,j,:));
+
+                % Find minimum (water saturation dip)
+                [~, min_idx] = min(wassr_spectrum);
+
+                % B0 offset is the ppm where minimum occurs
+                B0_map_ppm(i,j) = wassr_offsets_ppm(min_idx);
+            end
+        end
+
+        % Smooth the B0 map to reduce noise
+        B0_map_ppm = imgaussfilt(B0_map_ppm, 2);
 
         % Clip outliers
         B0_map_ppm(B0_map_ppm < -2) = -2;
         B0_map_ppm(B0_map_ppm > 2) = 2;
 
         apply_B0_correction = true;
-        fprintf('✓ Loaded B0 map: mean = %.3f ppm, std = %.3f ppm\n', ...
+        fprintf('✓ Calculated B0 map from WASSR: mean = %.3f ppm, std = %.3f ppm\n', ...
             mean(B0_map_ppm(:)), std(B0_map_ppm(:)));
-    end
+
+    case 'Load external B0 map'
+        disp('Select external B0 map DICOM folder');
+        DIR_B0 = uigetdir(pwd, 'Select B0 map DICOM folder');
+
+        if DIR_B0 == 0
+            warning('No folder selected. Skipping B0 correction.');
+            B0_map_ppm = zeros(xDim, yDim);
+            apply_B0_correction = false;
+        else
+            dicomFiles_B0 = dir(fullfile(DIR_B0, '*.dcm'));
+            if isempty(dicomFiles_B0)
+                warning('No DICOM files found. Skipping B0 correction.');
+                B0_map_ppm = zeros(xDim, yDim);
+                apply_B0_correction = false;
+            else
+                B0_Hz = double(dicomread(fullfile(DIR_B0, dicomFiles_B0(1).name)));
+                B0_map_ppm = B0_Hz / f0_MHz;
+
+                B0_map_ppm(B0_map_ppm < -2) = -2;
+                B0_map_ppm(B0_map_ppm > 2) = 2;
+
+                apply_B0_correction = true;
+                fprintf('✓ Loaded external B0 map: mean = %.3f ppm, std = %.3f ppm\n', ...
+                    mean(B0_map_ppm(:)), std(B0_map_ppm(:)));
+            end
+        end
+
+    otherwise  % Skip B0 correction
+        disp('⊗ B0 correction skipped');
+        B0_map_ppm = zeros(xDim, yDim);
+        apply_B0_correction = false;
 end
 
-%% Step 3: Automatic Phantom Outline Detection
+%% Step 4: Automatic Phantom Outline Detection
 disp('========================================');
-disp('STEP 3: Automatic Phantom Detection');
+disp('STEP 4: Automatic Phantom Detection');
 disp('========================================');
 
-% Use S0 image (typically first or middle offset, or 0 ppm)
-[~, idx_S0] = min(abs(ppmOffsets));  % Find closest to 0 ppm
-S0_image = zspecVolume(:,:,idx_S0);
+% Use S0 image (index 2)
+% S0_image already loaded in Step 2
 
 % Smooth and normalize
 Sm = imgaussfilt(S0_image, 4);
@@ -199,9 +229,9 @@ hold off;
 saveas(gcf, 'CEST_phantom_outline.png');
 fprintf('✓ Phantom outline detected\n');
 
-%% Step 4: Automatic Tube Detection (24 tubes)
+%% Step 5: Automatic Tube Detection (24 tubes)
 disp('========================================');
-disp('STEP 4: Automatic Tube Detection');
+disp('STEP 5: Automatic Tube Detection');
 disp('========================================');
 
 % Background subtraction for tube detection
@@ -289,9 +319,9 @@ fprintf('✓ Detected %d tubes with automatic ordering\n', numTubes);
 % Save tube masks
 save('CEST_tubeMasks.mat', 'tubeMasks', 'tube_labels', 'phantomCenter');
 
-%% Step 5: Apply B0 Correction to Z-spectra
+%% Step 6: Apply B0 Correction to Z-spectra
 disp('========================================');
-disp('STEP 5: B0 Correction');
+disp('STEP 6: B0 Correction');
 disp('========================================');
 
 if apply_B0_correction
@@ -327,9 +357,9 @@ else
     fprintf('⊗ B0 correction skipped\n');
 end
 
-%% Step 6: Calculate %CEST (MTR Asymmetry) for Multiple Offsets
+%% Step 7: Calculate %CEST (MTR Asymmetry) for Multiple Offsets
 disp('========================================');
-disp('STEP 6: Calculate %CEST (MTR Asymmetry)');
+disp('STEP 7: Calculate %CEST (MTR Asymmetry)');
 disp('========================================');
 
 % Define key CEST offsets to analyze (ppm)
@@ -375,9 +405,9 @@ end
 
 fprintf('✓ Calculated %CEST maps for %d offsets\n', num_offsets);
 
-%% Step 7: Extract ROI Statistics for Each Tube
+%% Step 8: Extract ROI Statistics for Each Tube
 disp('========================================');
-disp('STEP 7: Extract Tube-wise Statistics');
+disp('STEP 8: Extract Tube-wise Statistics');
 disp('========================================');
 
 % Preallocate results table
@@ -410,9 +440,9 @@ end
 
 fprintf('✓ Extracted statistics for %d tubes\n', numTubes);
 
-%% Step 8: Export Results to CSV
+%% Step 9: Export Results to CSV
 disp('========================================');
-disp('STEP 8: Export Results');
+disp('STEP 9: Export Results');
 disp('========================================');
 
 % Convert struct to table
@@ -423,9 +453,9 @@ csv_filename = 'CEST_results_B0corrected.csv';
 writetable(T, csv_filename);
 fprintf('✓ Saved results to: %s\n', csv_filename);
 
-%% Step 9: Generate Parametric Maps
+%% Step 10: Generate Parametric Maps
 disp('========================================');
-disp('STEP 9: Generate Parametric Maps');
+disp('STEP 10: Generate Parametric Maps');
 disp('========================================');
 
 % Create composite parametric maps for each offset
@@ -472,9 +502,9 @@ end
 
 fprintf('✓ Generated %d parametric maps\n', num_offsets);
 
-%% Step 10: Summary Plot - All Tubes, All Offsets
+%% Step 11: Summary Plot - All Tubes, All Offsets
 disp('========================================');
-disp('STEP 10: Generate Summary Plots');
+disp('STEP 11: Generate Summary Plots');
 disp('========================================');
 
 figure('Position', [100, 100, 1400, 800]);
