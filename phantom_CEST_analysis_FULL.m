@@ -599,6 +599,14 @@ results.T2_mean_ms = zeros(numTubes, 1);
 results.B1_mean_percent = zeros(numTubes, 1);
 results.B0_mean_ppm = zeros(numTubes, 1);
 
+% Preallocate CEST field names
+for idx = 1:num_offsets
+    field_name_mean = sprintf('CEST_%s_ppm_mean', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    field_name_std = sprintf('CEST_%s_ppm_std', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    results.(field_name_mean) = zeros(numTubes, 1);
+    results.(field_name_std) = zeros(numTubes, 1);
+end
+
 for t = 1:numTubes
     currentMask = tubeMasks(:,:,t);
     results.num_voxels(t) = sum(currentMask(:));
@@ -613,10 +621,11 @@ for t = 1:numTubes
         MTR_values = MTR_maps(:,:,idx);
         tube_values = MTR_values(currentMask);
 
-        results.(sprintf('CEST_%.2fppm_mean', actual_offsets(idx)))(t) = ...
-            mean(tube_values, 'omitnan');
-        results.(sprintf('CEST_%.2fppm_std', actual_offsets(idx)))(t) = ...
-            std(tube_values, 'omitnan');
+        field_name_mean = sprintf('CEST_%s_ppm_mean', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+        field_name_std = sprintf('CEST_%s_ppm_std', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+
+        results.(field_name_mean)(t) = mean(tube_values, 'omitnan');
+        results.(field_name_std)(t) = std(tube_values, 'omitnan');
     end
 end
 
@@ -660,8 +669,10 @@ for idx = 1:num_offsets
     title('Overlay on S0', 'FontSize', 14);
 
     subplot(1,3,3);
-    tube_means = results.(sprintf('CEST_%.2fppm_mean', actual_offsets(idx)));
-    tube_stds = results.(sprintf('CEST_%.2fppm_std', actual_offsets(idx)));
+    field_name_mean = sprintf('CEST_%s_ppm_mean', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    field_name_std = sprintf('CEST_%s_ppm_std', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    tube_means = results.(field_name_mean);
+    tube_stds = results.(field_name_std);
     bar(1:numTubes, tube_means);
     hold on;
     errorbar(1:numTubes, tube_means, tube_stds, 'k.', 'LineWidth', 1);

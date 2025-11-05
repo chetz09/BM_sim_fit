@@ -418,8 +418,12 @@ results.num_voxels = zeros(numTubes, 1);
 
 % MTR asymmetry means and stds for each offset
 for idx = 1:num_offsets
-    results.(sprintf('CEST_%.2fppm_mean', actual_offsets(idx))) = zeros(numTubes, 1);
-    results.(sprintf('CEST_%.2fppm_std', actual_offsets(idx))) = zeros(numTubes, 1);
+    % Replace periods with underscores in field names (MATLAB doesn't allow dots)
+    field_name_mean = sprintf('CEST_%s_ppm_mean', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    field_name_std = sprintf('CEST_%s_ppm_std', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+
+    results.(field_name_mean) = zeros(numTubes, 1);
+    results.(field_name_std) = zeros(numTubes, 1);
 end
 
 % Extract statistics for each tube
@@ -431,10 +435,12 @@ for t = 1:numTubes
         MTR_values = MTR_maps(:,:,idx);
         tube_values = MTR_values(currentMask);
 
-        results.(sprintf('CEST_%.2fppm_mean', actual_offsets(idx)))(t) = ...
-            mean(tube_values, 'omitnan');
-        results.(sprintf('CEST_%.2fppm_std', actual_offsets(idx)))(t) = ...
-            std(tube_values, 'omitnan');
+        % Use same field name format
+        field_name_mean = sprintf('CEST_%s_ppm_mean', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+        field_name_std = sprintf('CEST_%s_ppm_std', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+
+        results.(field_name_mean)(t) = mean(tube_values, 'omitnan');
+        results.(field_name_std)(t) = std(tube_values, 'omitnan');
     end
 end
 
@@ -485,8 +491,10 @@ for idx = 1:num_offsets
 
     % Subplot 3: Tube-wise bar plot
     subplot(1,3,3);
-    tube_means = results.(sprintf('CEST_%.2fppm_mean', actual_offsets(idx)));
-    tube_stds = results.(sprintf('CEST_%.2fppm_std', actual_offsets(idx)));
+    field_name_mean = sprintf('CEST_%s_ppm_mean', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    field_name_std = sprintf('CEST_%s_ppm_std', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    tube_means = results.(field_name_mean);
+    tube_stds = results.(field_name_std);
     bar(1:numTubes, tube_means);
     hold on;
     errorbar(1:numTubes, tube_means, tube_stds, 'k.', 'LineWidth', 1);
@@ -512,7 +520,8 @@ figure('Position', [100, 100, 1400, 800]);
 % Create heatmap of CEST values (tubes x offsets)
 CEST_matrix = zeros(numTubes, num_offsets);
 for idx = 1:num_offsets
-    CEST_matrix(:, idx) = results.(sprintf('CEST_%.2fppm_mean', actual_offsets(idx)));
+    field_name_mean = sprintf('CEST_%s_ppm_mean', strrep(sprintf('%.2f', actual_offsets(idx)), '.', '_'));
+    CEST_matrix(:, idx) = results.(field_name_mean);
 end
 
 imagesc(CEST_matrix');
