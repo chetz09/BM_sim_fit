@@ -5,7 +5,7 @@
 ### 1. `phantom_CEST_BMC_analysis.m` - Main Analysis Script
 
 **What it does:**
-- Automatic detection of 24 tubes
+- **Manual ROI drawing** for 24 tubes (in correct order)
 - WASSR-based B0 field correction
 - Bloch-McConnell-based analysis (replaces Lorentzian fitting)
 - Kex (exchange rate) extraction
@@ -18,13 +18,16 @@
 - ✅ Kex extraction from CEST effects
 - ✅ Concentration estimation per tube
 - ✅ WASSR B0 correction
-- ✅ Automatic tube detection
-- ✅ Tube numbering verification
+- ✅ **Manual ROI drawing** (draw tubes 1-24 in exact order)
+- ✅ Interactive drawing with real-time preview
+- ✅ Auto-saves backups every 6 tubes
 
 ### 2. `reorder_tubes_to_match_layout.m` - Tube Reordering Helper
 
 **When to use:**
-If automatic tube numbering doesn't match your phantom layout (shots.png), use this script to manually reorder tubes to match your specific layout.
+- **Not needed** with manual ROI drawing (you draw tubes in correct order)
+- Only useful if you used automatic detection in a previous version
+- Can reorder pre-existing tube masks to match your phantom layout
 
 ## Quick Start Guide
 
@@ -35,30 +38,45 @@ cd /path/to/BM_sim_fit
 phantom_CEST_BMC_analysis
 ```
 
-### Step 2: Verify Tube Numbering
+### Step 2: Select ROI Drawing Method
 
-The script will pause and show you `DETECTED_tube_numbering.png`.
+When prompted, choose your preferred drawing method:
+- **Option 1 (Recommended)**: Circle ROI - Best for round tubes
+- **Option 2**: Polygon ROI - For irregular shapes
+- **Option 3**: Freehand ROI - For complex shapes
 
-**Compare this with your shots.png image:**
-- Do the tube numbers match your layout?
-- **If YES**: Click "Yes, continue" and the analysis will complete automatically
-- **If NO**: Click "No, I need to reorder manually" and proceed to Step 3
+### Step 3: Draw ROIs for All 24 Tubes
 
-### Step 3: Manual Reordering (if needed)
+**Have your shots.png image open for reference!**
 
-```matlab
-reorder_tubes_to_match_layout
-```
+The script will guide you through drawing ROIs for each tube in order:
 
-Follow the interactive prompts to map detected tubes to your actual layout.
+1. **Tube 1**: Iopamidol 20mM pH 6.2
+2. **Tube 2**: Iopamidol 20mM pH 6.8
+3. **Tube 3**: Iopamidol 20mM pH 7.4
+...and so on through Tube 24
 
-### Step 4: Rerun Analysis (if reordered)
+**For each tube:**
+- The screen shows the tube number and chemical name
+- Previously drawn tubes are displayed with numbers
+- Draw the ROI around the current tube
+- Double-click inside to finish
+- Confirm or redraw as needed
+- Progress auto-saves every 6 tubes
 
-```matlab
-phantom_CEST_BMC_analysis
-```
+### Step 4: Verify and Continue
 
-It will automatically load the reordered masks and continue.
+After drawing all ROIs:
+- Script shows overview with all tubes numbered
+- Verify numbering matches your shots.png
+- Analysis automatically continues with BMC fitting
+
+### Step 5: Review Results
+
+Check the generated files:
+- `BMC_CEST_results.csv` - Kex, concentration, %CEST values
+- `BMC_parametric_maps.png` - All maps
+- `MANUAL_tube_numbering.png` - Your ROIs with numbers
 
 ## Your Phantom Layout
 
@@ -147,17 +165,25 @@ For more accurate Kex values, you can integrate with `multiZfit.m` from the opti
 
 ## Troubleshooting
 
-### Issue: "Detected 20 tubes instead of 24"
+### Issue: "Accidentally drew wrong tube"
 
 **Solution:**
-- Adjust Gaussian smoothing: Change `imgaussfilt(S0_image, 4)` to `3` or `5`
-- Adjust size threshold: Change `numOfPixels < 10` to different value (5-20)
+- Click "Redraw" when prompted
+- Or click "Skip" and redraw it later manually
 
-### Issue: "Tube numbering doesn't match shots.png"
+### Issue: "Forgot which tube I'm on"
 
 **Solution:**
-- Use `reorder_tubes_to_match_layout.m` script
-- Or manually edit the `tube_order` variable in the BMC script
+- Check the title bar - shows "TUBE X/24: Chemical name pH"
+- Previously drawn tubes are shown with numbers
+- If unsure, click "Skip" and fix later
+
+### Issue: "Tube numbering doesn't match shots.png after drawing"
+
+**Solution:**
+- You likely drew tubes in wrong order
+- Delete `BMC_tubeMasks.mat` and rerun script
+- OR use `reorder_tubes_to_match_layout.m` to fix the order
 
 ### Issue: "Kex values seem too high/low"
 

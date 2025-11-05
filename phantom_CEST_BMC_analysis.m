@@ -143,119 +143,205 @@ B0_map_ppm(B0_map_ppm > 2) = 2;
 fprintf('✓ B0 map calculated: mean = %.3f ppm, std = %.3f ppm\n', ...
     mean(B0_map_ppm(:)), std(B0_map_ppm(:)));
 
-%% Step 4: Automatic Phantom Detection
+%% Step 4: Manual ROI Drawing for 24 Tubes
 disp('========================================');
-disp('STEP 4: Automatic Phantom Detection');
-disp('========================================');
-
-Sm = imgaussfilt(S0_image, 4);
-Smn = mat2gray(Sm);
-bw_phantom = imbinarize(Smn);
-
-CCp = bwconncomp(bw_phantom);
-numPix = cellfun(@numel, CCp.PixelIdxList);
-[~, idxMax] = max(numPix);
-phantom_outline = false(size(bw_phantom));
-phantom_outline(CCp.PixelIdxList{idxMax}) = true;
-phantom_outline = imfill(phantom_outline, "holes");
-phantom_outline = imopen(phantom_outline, strel('disk', 5));
-
-fprintf('✓ Phantom outline detected\n');
-
-%% Step 5: Automatic Tube Detection
-disp('========================================');
-disp('STEP 5: Automatic Tube Detection (24 tubes)');
+disp('STEP 4: Manual ROI Drawing (24 tubes)');
 disp('========================================');
 
-bgd = imgaussfilt(S0_image, 4);
-I_sub = S0_image - bgd;
-bw_tubes = imbinarize(I_sub);
-bw_tubes(~phantom_outline) = 0;
+fprintf('\nYou will now draw ROIs for all 24 tubes in order.\n');
+fprintf('Follow the tube numbering from your shots.png image:\n');
+fprintf('  Tubes 1-3:   Iopamidol 20mM (pH 6.2, 6.8, 7.4)\n');
+fprintf('  Tubes 4-6:   Iopamidol 50mM (pH 6.2, 6.8, 7.4)\n');
+fprintf('  Tubes 7-9:   Creatine 20mM (pH 6.2, 6.8, 7.4)\n');
+fprintf('  Tubes 10-12: Creatine 50mM (pH 6.2, 6.8, 7.4)\n');
+fprintf('  Tubes 13-15: Taurine 20mM (pH 6.2, 6.8, 7.4)\n');
+fprintf('  Tubes 16-18: Taurine 50mM (pH 6.2, 6.8, 7.4)\n');
+fprintf('  Tubes 19-21: PLL 0.1%% (pH 6.2, 6.8, 7.4)\n');
+fprintf('  Tubes 22-24: PBS blank (pH 6.2, 6.8, 7.4)\n\n');
 
-CC = bwconncomp(bw_tubes, 8);
-numOfPixels = cellfun(@numel, CC.PixelIdxList);
-
-[~, indexOfMax] = max(numOfPixels);
-bw_tubes(CC.PixelIdxList{indexOfMax}) = 0;
-indexOfSmall = find(numOfPixels < 10);
-for i = 1:length(indexOfSmall)
-    bw_tubes(CC.PixelIdxList{indexOfSmall(i)}) = 0;
+% ROI drawing options
+fprintf('Select ROI drawing method:\n');
+fprintf('  1. Circle ROI (best for round tubes)\n');
+fprintf('  2. Polygon ROI (for irregular shapes)\n');
+fprintf('  3. Freehand ROI (for complex shapes)\n');
+draw_method = input('Enter choice (1-3) [default: 1]: ');
+if isempty(draw_method)
+    draw_method = 1;
 end
 
-bw_tubes = imfill(bw_tubes, "holes");
-bw_tubes = imclearborder(bw_tubes);
-
-CC = bwconncomp(bw_tubes, 8);
-stats = regionprops(CC, 'Centroid', 'Area');
-
-phantomStats = regionprops(phantom_outline, 'Centroid');
-phantomCenter = phantomStats.Centroid;
-
-centroids = cat(1, stats.Centroid);
-angles = atan2(centroids(:,2) - phantomCenter(2), ...
-               centroids(:,1) - phantomCenter(1));
-[~, sortedIdx] = sort(angles);
-
-numTubes = length(sortedIdx);
-if numTubes ~= 24
-    warning('Expected 24 tubes but detected %d', numTubes);
-end
-
+% Initialize storage
+numTubes = 24;
 tubeMasks = false(xDim, yDim, numTubes);
-labeledImage = bwlabel(bw_tubes);
+tube_info = struct();
 
-for i = 1:numTubes
-    tubeMasks(:,:,i) = (labeledImage == sortedIdx(i));
+% Create main figure
+main_fig = figure('Position', [50, 50, 1400, 800], 'Name', 'Manual ROI Drawing');
+
+% Enhance image for better visualization
+ref_img_enhanced = imadjust(mat2gray(S0_image));
+
+fprintf('\nStarting ROI drawing...\n');
+fprintf('Instructions:\n');
+fprintf('  - Draw ROI around each tube\n');
+fprintf('  - Double-click inside to finish\n');
+fprintf('  - Confirm or redraw if needed\n');
+fprintf('  - Progress auto-saves every 6 tubes\n\n');
+
+for tube_idx = 1:numTubes
+    clf(main_fig);
+
+    % Display image with previous ROIs
+    subplot(1, 2, 1);
+    imagesc(ref_img_enhanced);
+    axis image;
+    colormap gray;
+    colorbar;
+    hold on;
+
+    % Overlay previous masks
+    if tube_idx > 1
+        colors = jet(24);
+        for prev = 1:tube_idx-1
+            contour(tubeMasks(:,:,prev), 1, 'Color', colors(prev,:), 'LineWidth', 1.5);
+            stats = regionprops(tubeMasks(:,:,prev), 'Centroid');
+            if ~isempty(stats)
+                text(stats.Centroid(1), stats.Centroid(2), num2str(prev), ...
+                    'Color', 'yellow', 'FontSize', 10, 'FontWeight', 'bold', ...
+                    'HorizontalAlignment', 'center', 'BackgroundColor', [0 0 0 0.7]);
+            end
+        end
+    end
+
+    title(sprintf('TUBE %d/%d: %s', tube_idx, numTubes, tube_labels{tube_idx}), ...
+        'FontSize', 14, 'FontWeight', 'bold', 'Color', 'red');
+    xlabel('Draw ROI, then double-click inside to finish', 'FontSize', 11);
+    hold off;
+
+    % Drawing loop with confirmation
+    confirmed = false;
+    while ~confirmed
+        % Draw ROI
+        subplot(1, 2, 1);
+        hold on;
+        switch draw_method
+            case 1
+                roi = drawcircle('Color', 'r', 'LineWidth', 2);
+            case 2
+                roi = drawpolygon('Color', 'r', 'LineWidth', 2);
+            case 3
+                roi = drawfreehand('Color', 'r', 'LineWidth', 2);
+        end
+
+        % Wait for completion
+        wait(roi);
+
+        % Create mask
+        temp_mask = createMask(roi);
+        num_pixels = sum(temp_mask(:));
+
+        % Show mask preview
+        subplot(1, 2, 2);
+        imshow(temp_mask);
+        title(sprintf('Mask Preview (%d pixels)', num_pixels), 'FontSize', 12);
+
+        % Validate size
+        if num_pixels < 5
+            warndlg('ROI too small (< 5 pixels). Please redraw.', 'Warning');
+            delete(roi);
+            continue;
+        elseif num_pixels > 2000
+            choice = questdlg(sprintf('ROI is large (%d pixels). Continue?', num_pixels), ...
+                'Large ROI', 'Yes', 'Redraw', 'Redraw');
+            if strcmp(choice, 'Redraw')
+                delete(roi);
+                continue;
+            end
+        end
+
+        % Confirmation
+        confirm = questdlg(sprintf('Accept this ROI for Tube %d?', tube_idx), ...
+            'Confirm ROI', 'Accept', 'Redraw', 'Skip', 'Accept');
+
+        switch confirm
+            case 'Accept'
+                tubeMasks(:,:,tube_idx) = temp_mask;
+                tube_info(tube_idx).label = tube_labels{tube_idx};
+                tube_info(tube_idx).pixels = num_pixels;
+                tube_info(tube_idx).centroid = regionprops(temp_mask, 'Centroid').Centroid;
+                confirmed = true;
+                fprintf('✓ Tube %d: %s (%d pixels)\n', tube_idx, tube_labels{tube_idx}, num_pixels);
+
+            case 'Redraw'
+                delete(roi);
+
+            case 'Skip'
+                fprintf('⊗ Tube %d skipped\n', tube_idx);
+                confirmed = true;
+        end
+    end
+
+    % Auto-save backup every 6 tubes
+    if mod(tube_idx, 6) == 0
+        backup_file = sprintf('BMC_tubeMasks_backup_%d.mat', tube_idx);
+        save(backup_file, 'tubeMasks', 'tube_info', 'tube_labels');
+        fprintf('  💾 Backup saved: %s\n', backup_file);
+    end
 end
 
-% Visualize detected tubes
-figure('Position', [100, 100, 1200, 800]);
-imagesc(S0_image);
+close(main_fig);
+
+% Create overview figure
+fprintf('\n✓ All ROIs drawn!\n');
+fprintf('Creating overview...\n');
+
+overview_fig = figure('Position', [100, 100, 1400, 900]);
+imagesc(ref_img_enhanced);
 axis image off;
 colormap gray;
 hold on;
 
-for i = 1:numTubes
-    c = centroids(sortedIdx(i), :);
-    text(c(1), c(2), sprintf('%d', i), ...
-        'Color', 'yellow', 'FontSize', 12, 'FontWeight', 'bold', ...
-        'HorizontalAlignment', 'center', 'BackgroundColor', [1 0 0 0.6]);
-    visboundaries(tubeMasks(:,:,i), 'Color', 'cyan', 'LineWidth', 1);
+colors = jet(24);
+for t = 1:numTubes
+    if any(tubeMasks(:,:,t), 'all')
+        contour(tubeMasks(:,:,t), 1, 'Color', colors(t,:), 'LineWidth', 2);
+        if isfield(tube_info, 'centroid') && length(tube_info) >= t
+            text(tube_info(t).centroid(1), tube_info(t).centroid(2), num2str(t), ...
+                'Color', 'yellow', 'FontSize', 12, 'FontWeight', 'bold', ...
+                'HorizontalAlignment', 'center', 'BackgroundColor', [0 0 0 0.7]);
+        end
+    end
 end
+title('All 24 Tube ROIs - VERIFY NUMBERING!', 'FontSize', 16, 'FontWeight', 'bold');
 hold off;
-title('Automatic Tube Detection - VERIFY NUMBERING!', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'red');
-saveas(gcf, 'DETECTED_tube_numbering.png');
+saveas(overview_fig, 'MANUAL_tube_numbering.png');
 
-fprintf('✓ Detected %d tubes\n', numTubes);
-fprintf('\n');
-fprintf('⚠⚠⚠ IMPORTANT: Check DETECTED_tube_numbering.png ⚠⚠⚠\n');
-fprintf('Compare with your shots.png image.\n');
-fprintf('If numbering does not match, you will need to manually reorder.\n');
-fprintf('\n');
+fprintf('✓ Overview saved: MANUAL_tube_numbering.png\n');
+fprintf('✓ Verify the tube numbering matches your shots.png!\n\n');
 
-% Prompt user to continue or stop to reorder
-choice = questdlg(['Tube numbering shown in DETECTED_tube_numbering.png. ', ...
-                   'Does it match your phantom layout (shots.png)?'], ...
-    'Verify Tube Numbering', ...
-    'Yes, continue', 'No, I need to reorder manually', 'Yes, continue');
-
-if strcmp(choice, 'No, I need to reorder manually')
-    fprintf('\n');
-    fprintf('=== Manual Tube Reordering Instructions ===\n');
-    fprintf('1. Open DETECTED_tube_numbering.png and your shots.png side by side\n');
-    fprintf('2. Create a mapping array, e.g.:\n');
-    fprintf('   tube_order = [5, 6, 7, 1, 2, 3, 8, 9, ...];  %% New order\n');
-    fprintf('3. After defining tube_order, rerun this section:\n');
-    fprintf('   tubeMasks_reordered = tubeMasks(:,:,tube_order);\n');
-    fprintf('   tubeMasks = tubeMasks_reordered;\n');
-    fprintf('4. Then continue with the analysis\n');
-    fprintf('\n');
-    error('Analysis paused. Please reorder tubes and rerun.');
+% Quality checks
+num_valid = sum(any(reshape(tubeMasks, [], 24), 1));
+if num_valid == 24
+    fprintf('✓ All 24 tube masks created\n');
+else
+    warning('Only %d/24 masks created. Some tubes were skipped.', num_valid);
 end
 
-fprintf('✓ Tube numbering verified. Continuing with analysis...\n');
+% Check for overlaps
+overlap_found = false;
+for i = 1:23
+    for j = i+1:24
+        if any(tubeMasks(:,:,i) & tubeMasks(:,:,j), 'all')
+            warning('⚠ Overlap detected between Tube %d and Tube %d', i, j);
+            overlap_found = true;
+        end
+    end
+end
+if ~overlap_found
+    fprintf('✓ No overlapping masks detected\n');
+end
 
-save('BMC_tubeMasks.mat', 'tubeMasks', 'tube_labels', 'phantomCenter', 'centroids', 'sortedIdx');
+save('BMC_tubeMasks.mat', 'tubeMasks', 'tube_labels', 'tube_info');
+fprintf('✓ Saved: BMC_tubeMasks.mat\n\n');
 
 %% Step 6: Apply B0 Correction to Z-spectra
 disp('========================================');
