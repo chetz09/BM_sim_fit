@@ -172,12 +172,85 @@ hold off;
 fprintf('✓ Phantom outline detected\n');
 fprintf('  This will be used to mask B0 correction to phantom region only.\n\n');
 
-%% Step 5: Manual ROI Drawing for 24 Tubes
+%% Step 5: Load or Draw Tube Masks
 disp('========================================');
-disp('STEP 5: Manual ROI Drawing (24 tubes)');
+disp('STEP 5: Load or Draw Tube Masks');
 disp('========================================');
 
-fprintf('\nYou will now draw ROIs for all 24 tubes in order.\n');
+% Check if pre-saved tube masks exist
+if exist('BMC_tubeMasks.mat', 'file')
+    fprintf('Found existing BMC_tubeMasks.mat file.\n');
+
+    choice = questdlg('Found existing tube masks. What would you like to do?', ...
+        'Load Existing Masks', ...
+        'Load existing masks', 'Redraw all tubes', 'Load existing masks');
+
+    if strcmp(choice, 'Load existing masks')
+        fprintf('Loading tube masks from BMC_tubeMasks.mat...\n');
+        load('BMC_tubeMasks.mat', 'tubeMasks', 'tube_labels', 'tube_info');
+
+        [xDim_loaded, yDim_loaded, numTubes] = size(tubeMasks);
+
+        % Verify dimensions match
+        if xDim_loaded ~= xDim || yDim_loaded ~= yDim
+            error('Loaded tube masks dimensions (%d x %d) do not match current data (%d x %d)!', ...
+                xDim_loaded, yDim_loaded, xDim, yDim);
+        end
+
+        % Verify we have 24 tubes
+        if numTubes ~= 24
+            warning('Loaded %d tube masks, expected 24. Proceeding with caution.', numTubes);
+        end
+
+        % Visualize loaded masks
+        ref_img_enhanced = imadjust(mat2gray(S0_image));
+        overview_fig = figure('Position', [100, 100, 1400, 900]);
+        imagesc(ref_img_enhanced);
+        axis image off;
+        colormap gray;
+        hold on;
+
+        colors = jet(24);
+        for t = 1:numTubes
+            if any(tubeMasks(:,:,t), 'all')
+                contour(tubeMasks(:,:,t), 1, 'Color', colors(t,:), 'LineWidth', 2);
+                if exist('tube_info', 'var') && isfield(tube_info, 'centroid') && length(tube_info) >= t
+                    text(tube_info(t).centroid(1), tube_info(t).centroid(2), num2str(t), ...
+                        'Color', 'yellow', 'FontSize', 12, 'FontWeight', 'bold', ...
+                        'HorizontalAlignment', 'center', 'BackgroundColor', [0 0 0 0.7]);
+                else
+                    % Calculate centroid if tube_info doesn't have it
+                    props = regionprops(tubeMasks(:,:,t), 'Centroid');
+                    if ~isempty(props)
+                        text(props.Centroid(1), props.Centroid(2), num2str(t), ...
+                            'Color', 'yellow', 'FontSize', 12, 'FontWeight', 'bold', ...
+                            'HorizontalAlignment', 'center', 'BackgroundColor', [0 0 0 0.7]);
+                    end
+                end
+            end
+        end
+        title('Loaded Tube Masks', 'FontSize', 16, 'FontWeight', 'bold');
+        hold off;
+        saveas(overview_fig, 'LOADED_tube_numbering.png');
+
+        fprintf('✓ Loaded %d tube masks successfully\n', numTubes);
+        fprintf('✓ Saved visualization: LOADED_tube_numbering.png\n\n');
+
+        % Skip to next step
+        use_loaded_masks = true;
+    else
+        fprintf('User chose to redraw tubes.\n');
+        use_loaded_masks = false;
+    end
+else
+    fprintf('No existing BMC_tubeMasks.mat found.\n');
+    fprintf('You will draw ROIs for all 24 tubes.\n');
+    use_loaded_masks = false;
+end
+
+% If not using loaded masks, proceed with manual drawing
+if ~use_loaded_masks
+    fprintf('\nYou will now draw ROIs for all 24 tubes in order.\n');
 fprintf('Follow the tube numbering from your shots.png image:\n');
 fprintf('  Tubes 1-3:   Iopamidol 20mM (pH 6.2, 6.8, 7.4)\n');
 fprintf('  Tubes 4-6:   Iopamidol 50mM (pH 6.2, 6.8, 7.4)\n');
@@ -371,6 +444,7 @@ end
 
 save('BMC_tubeMasks.mat', 'tubeMasks', 'tube_labels', 'tube_info');
 fprintf('✓ Saved: BMC_tubeMasks.mat\n\n');
+end  % End of manual drawing section
 
 %% Step 6: Apply B0 Correction to Z-spectra
 disp('========================================');
