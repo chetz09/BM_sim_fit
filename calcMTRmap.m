@@ -32,7 +32,9 @@
 %                           value larger than sel_ppm in ppmOffsets
 %
 function [MTRmap,MTRppm,sel_ppm_true]=calcMTRmap(zspecImgData,ppmOffsets,sel_ppm)
-
+% DK TO DO: Update to be compatible w/ computing the MTR profile for the
+% ROI-average zspec: if/then loop for 2D vs 3D array; and make sel_ppm an
+% optional input 
 % Detect whether input sel_ppm was specified
 if nargin<3
     selppmflg=false;
@@ -44,10 +46,6 @@ zsIDsize=size(zspecImgData);
 if length(zsIDsize)>2 
     % Reshape zspecImgData to have only 2 dimensions
     zspecImgData=reshape(zspecImgData,[],zsIDsize(end));
-elseif length(zsIDsize)==1
-    % Handle 1D case (single spectrum)
-    zspecImgData=reshape(zspecImgData,1,[]);
-    zsIDsize=[1 length(zspecImgData)];
 end
 
 % Reorder both ppmOffsets and zspecImgData (in spectroscopic dimension) to
@@ -77,18 +75,9 @@ else
     ppmPosIdx=find(ppmOffsets>0);
     ppmPosIdxPaired=ppmPosIdx;
     ppmNegIdxPaired=zeros(size(ppmPosIdxPaired));
-    
-    % Get all negative ppm values and their indices in the full array
-    ppmNegIdx=find(ppmOffsets<0);
-    ppmNegVals=ppmOffsets(ppmNegIdx);
-    
     for ii=1:length(ppmPosIdxPaired)
-        % Find the negative offset closest in magnitude to current positive offset
-        targetVal = -ppmOffsets(ppmPosIdxPaired(ii));
-        [~, minIdx] = min(abs(ppmNegVals - targetVal));
-        
-        % Store the index in the original ppmOffsets array
-        ppmNegIdxPaired(ii) = ppmNegIdx(minIdx);
+        searchVec=abs(ppmOffsets(ppmOffsets<0)+ppmOffsets(ppmPosIdxPaired(ii)));
+        ppmNegIdxPaired(ii)=find(searchVec==min(searchVec)); %find value closest to zero
     end
     
     % Finally, ID the positive and negative offset Z-values
